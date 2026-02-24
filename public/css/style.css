@@ -1,4 +1,4 @@
-/* Base & variables */
+/* ——— Переменные ——— */
 :root {
   --bg: #0f0f12;
   --surface: #1a1a20;
@@ -7,13 +7,16 @@
   --text-muted: #8a8a96;
   --accent: #6366f1;
   --accent-hover: #818cf8;
+  --error: #f87171;
   --x-color: #f472b6;
   --o-color: #34d399;
   --win-line: #a78bfa;
   --radius: 12px;
   --shadow: 0 4px 24px rgba(0, 0, 0, 0.4);
-  --font: "DM Sans", system-ui, -apple-system, sans-serif;
+  --font: "Manrope", system-ui, -apple-system, sans-serif;
 }
+
+/* ——— Сброс и база ——— */
 
 *,
 *::before,
@@ -47,7 +50,7 @@ body {
   display: none !important;
 }
 
-/* Lobby */
+/* ——— Лобби ——— */
 .lobby {
   text-align: center;
   padding: 2rem 0;
@@ -80,12 +83,12 @@ body {
 
 .lobby__error {
   margin: 1rem 0 0;
-  color: #f87171;
+  color: var(--error);
   font-size: 0.9rem;
   min-height: 1.4em;
 }
 
-/* Buttons */
+/* ——— Кнопки ——— */
 .btn {
   display: inline-flex;
   align-items: center;
@@ -142,7 +145,7 @@ body {
   font-size: 0.9rem;
 }
 
-/* Input */
+/* ——— Поле ввода ——— */
 .input {
   width: 100%;
   padding: 0.75rem 1rem;
@@ -164,7 +167,7 @@ body {
   box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.2);
 }
 
-/* Game section */
+/* ——— Игра ——— */
 .game-section {
   padding: 1rem 0;
 }
@@ -202,7 +205,7 @@ body {
   font-size: 0.85rem;
 }
 
-/* Board — высота по содержимому (сетка), без лишнего пространства снизу */
+/* Сетка 3×3 */
 .board-wrap {
   margin: 0 auto 1.5rem;
   max-width: 320px;
@@ -220,7 +223,6 @@ body {
   box-shadow: var(--shadow);
 }
 
-/* Ячейка — строго квадрат за счёт padding-bottom: 100% (высота = ширина) */
 .cell {
   position: relative;
   width: 100%;
@@ -282,7 +284,7 @@ body {
   justify-content: center;
 }
 
-/* Адаптив: мобильные */
+/* ——— Адаптив ——— */
 @media (max-width: 480px) {
   body {
     padding: 0.75rem;
@@ -353,7 +355,6 @@ body {
   }
 }
 
-/* Улучшение касаний на мобильных */
 @media (hover: none) and (pointer: coarse) {
   .cell {
     min-height: 60px;

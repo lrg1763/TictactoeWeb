@@ -1,13 +1,14 @@
 (function () {
   'use strict';
 
+  // ——— Константы ———
   const WIN_LINES = [
     [0, 1, 2], [3, 4, 5], [6, 7, 8],
     [0, 3, 6], [1, 4, 7], [2, 5, 8],
     [0, 4, 8], [2, 4, 6]
   ];
 
-  const MESSAGE = {
+  const MSG = {
     CREATE: 'create',
     JOIN: 'join',
     STATE: 'state',
@@ -17,46 +18,42 @@
     OPPONENT_LEFT: 'opponent_left'
   };
 
-  let socket = null;
-  let roomId = null;
-  let myRole = null; // 'X' | 'O' | null
-  let board = Array(9).fill(null);
-  let currentTurn = 'X';
-  let winner = null;
-  let gameStarted = false;
-  let isMyTurn = false;
+  // ——— Состояние ———
+  const state = {
+    socket: null,
+    roomId: null,
+    myRole: null,
+    board: Array(9).fill(null),
+    currentTurn: 'X',
+    winner: null,
+    gameStarted: false,
+    isMyTurn: false
+  };
 
+  // ——— DOM ———
   const $ = (sel, ctx = document) => ctx.querySelector(sel);
   const $$ = (sel, ctx = document) => [...ctx.querySelectorAll(sel)];
 
-  const lobby = $('#lobby');
-  const gameSection = $('#gameSection');
-  const btnCreate = $('#btnCreate');
-  const btnJoin = $('#btnJoin');
-  const inputRoomId = $('#inputRoomId');
-  const lobbyError = $('#lobbyError');
-  const gameStatus = $('#gameStatus');
-  const shareBlock = $('#shareBlock');
-  const shareUrl = $('#shareUrl');
-  const btnCopyLink = $('#btnCopyLink');
-  const boardEl = $('#board');
-  const btnRestart = $('#btnRestart');
-  const btnLeave = $('#btnLeave');
+  const el = {
+    lobby: $('#lobby'),
+    gameSection: $('#gameSection'),
+    btnCreate: $('#btnCreate'),
+    btnJoin: $('#btnJoin'),
+    inputRoomId: $('#inputRoomId'),
+    lobbyError: $('#lobbyError'),
+    gameStatus: $('#gameStatus'),
+    shareBlock: $('#shareBlock'),
+    shareUrl: $('#shareUrl'),
+    btnCopyLink: $('#btnCopyLink'),
+    board: $('#board'),
+    btnRestart: $('#btnRestart'),
+    btnLeave: $('#btnLeave')
+  };
 
+  // ——— Утилиты ———
   function getWsUrl() {
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-    return proto + '//' + location.host;
-  }
-
-  function showLobby(err) {
-    lobby.classList.remove('hidden');
-    gameSection.classList.add('hidden');
-    lobbyError.textContent = err || '';
-  }
-
-  function showGame() {
-    lobby.classList.add('hidden');
-    gameSection.classList.remove('hidden');
+    return `${proto}//${location.host}`;
   }
 
   function setUrlRoom(id) {
@@ -70,143 +67,168 @@
   }
 
   function getShareLink() {
-    return location.origin + location.pathname + '?room=' + encodeURIComponent(roomId);
+    return `${location.origin}${location.pathname}?room=${encodeURIComponent(state.roomId)}`;
   }
 
   function checkWinner(cells) {
     for (const [a, b, c] of WIN_LINES) {
       const v = cells[a];
-      if (v && cells[a] === cells[b] && cells[b] === cells[c]) return { winner: v, line: [a, b, c] };
+      if (v && cells[a] === cells[b] && cells[b] === cells[c]) {
+        return { winner: v, line: [a, b, c] };
+      }
     }
     if (cells.every(Boolean)) return { winner: 'draw', line: [] };
     return null;
   }
 
-  function renderBoard(state) {
-    board = state.board || board;
-    currentTurn = state.currentTurn ?? currentTurn;
-    winner = state.winner ?? winner;
-    const result = checkWinner(board);
-    const winLine = result && result.line ? result.line : [];
-    const resolvedWinner = result ? result.winner : null;
+  async function copyToClipboard(text) {
+    await navigator.clipboard.writeText(text);
+  }
 
-    $$('.cell', boardEl).forEach((cell, i) => {
-      const val = board[i];
+  // ——— UI ———
+  function showLobby(err = '') {
+    el.lobby.classList.remove('hidden');
+    el.gameSection.classList.add('hidden');
+    el.lobbyError.textContent = err;
+  }
+
+  function showGame() {
+    el.lobby.classList.add('hidden');
+    el.gameSection.classList.remove('hidden');
+  }
+
+  function getStatusText(result, winLine) {
+    const { winner: resolvedWinner } = result || {};
+    if (resolvedWinner === 'draw') return 'Ничья!';
+    if (resolvedWinner) {
+      return resolvedWinner === state.myRole ? 'Вы победили!' : 'Победил противник';
+    }
+    if (!state.gameStarted) {
+      return state.myRole ? 'Ожидание второго игрока…' : 'Подключение…';
+    }
+    state.isMyTurn = state.myRole === state.currentTurn;
+    return state.isMyTurn ? 'Ваш ход' : 'Ход противника';
+  }
+
+  function renderBoard(payload) {
+    if (payload.board != null) state.board = payload.board;
+    if (payload.currentTurn != null) state.currentTurn = payload.currentTurn;
+    if (payload.winner != null) state.winner = payload.winner;
+
+    const result = checkWinner(state.board);
+    const winLine = result?.line ?? [];
+
+    $$('.cell', el.board).forEach((cell, i) => {
+      const val = state.board[i];
       const content = cell.querySelector('.cell__content');
       if (content) content.textContent = val || '';
-      cell.className = 'cell' + (val ? ' ' + val.toLowerCase() : '');
-      if (winLine.includes(i)) cell.classList.add('win');
-      else cell.classList.remove('win');
-      cell.disabled = !!resolvedWinner || val !== null || !gameStarted || (myRole !== currentTurn);
+      cell.className = 'cell' + (val ? ` ${val.toLowerCase()}` : '');
+      cell.classList.toggle('win', winLine.includes(i));
+      const disabled = !!result?.winner || val !== null || !state.gameStarted ||
+        (state.myRole !== state.currentTurn);
+      cell.disabled = disabled;
     });
 
-    if (resolvedWinner === 'draw') {
-      gameStatus.textContent = 'Ничья!';
-      btnRestart.classList.remove('hidden');
-    } else if (resolvedWinner) {
-      gameStatus.textContent = resolvedWinner === myRole ? 'Вы победили!' : 'Победил противник';
-      btnRestart.classList.remove('hidden');
-    } else if (!gameStarted) {
-      gameStatus.textContent = myRole ? 'Ожидание второго игрока…' : 'Подключение…';
-      btnRestart.classList.add('hidden');
-    } else {
-      isMyTurn = myRole === currentTurn;
-      gameStatus.textContent = isMyTurn ? 'Ваш ход' : 'Ход противника';
-      btnRestart.classList.add('hidden');
+    el.gameStatus.textContent = getStatusText(result, winLine);
+    el.btnRestart.classList.toggle('hidden', !result?.winner);
+
+    if (state.myRole === 'X' && state.roomId) {
+      el.shareBlock.classList.remove('hidden');
+      el.shareUrl.value = getShareLink();
     }
   }
 
+  // ——— WebSocket ———
   function send(msg) {
-    if (socket && socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(msg));
+    if (state.socket?.readyState === WebSocket.OPEN) {
+      state.socket.send(JSON.stringify(msg));
+    }
   }
 
-  function connect(callback) {
-    const wsUrl = getWsUrl();
-    const s = new WebSocket(wsUrl);
-    socket = s;
+  const messageHandlers = {
+    [MSG.STATE](data) {
+      if (data.roomId) {
+        state.roomId = data.roomId;
+        setUrlRoom(data.roomId);
+      }
+      if (data.role != null) state.myRole = data.role;
+      if (data.gameStarted !== undefined) state.gameStarted = data.gameStarted;
+      renderBoard({
+        board: data.board,
+        currentTurn: data.currentTurn,
+        winner: data.winner
+      });
+    },
+    [MSG.ERROR](data) {
+      el.lobbyError.textContent = data.message || 'Ошибка';
+    },
+    [MSG.OPPONENT_LEFT]() {
+      state.gameStarted = false;
+      el.gameStatus.textContent = 'Противник вышел. Ожидание нового игрока…';
+      renderBoard({ board: Array(9).fill(null), currentTurn: 'X', winner: null });
+    }
+  };
 
-    s.onopen = () => {
-      lobbyError.textContent = '';
-      if (callback) callback();
+  function connect(onOpen) {
+    const ws = new WebSocket(getWsUrl());
+    state.socket = ws;
+
+    ws.onopen = () => {
+      el.lobbyError.textContent = '';
+      onOpen?.();
     };
 
-    s.onmessage = (event) => {
+    ws.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
-        switch (data.type) {
-          case MESSAGE.STATE:
-            if (data.roomId) {
-              roomId = data.roomId;
-              setUrlRoom(roomId);
-            }
-            myRole = data.role || myRole;
-            gameStarted = data.gameStarted !== undefined ? data.gameStarted : gameStarted;
-            renderBoard({
-              board: data.board,
-              currentTurn: data.currentTurn,
-              winner: data.winner
-            });
-            if (myRole === 'X' && roomId) {
-              shareBlock.classList.remove('hidden');
-              shareUrl.value = getShareLink();
-            }
-            break;
-          case MESSAGE.ERROR:
-            lobbyError.textContent = data.message || 'Ошибка';
-            break;
-          case MESSAGE.OPPONENT_LEFT:
-            gameStarted = false;
-            gameStatus.textContent = 'Противник вышел. Ожидание нового игрока…';
-            renderBoard({ board: Array(9).fill(null), currentTurn: 'X', winner: null });
-            break;
-          default:
-            break;
-        }
+        const handler = messageHandlers[data.type];
+        if (handler) handler(data);
       } catch (_) {}
     };
 
-    s.onclose = () => {
-      socket = null;
+    ws.onclose = () => {
+      state.socket = null;
       showLobby('Соединение потеряно. Перезагрузите страницу.');
     };
 
-    s.onerror = () => {
+    ws.onerror = () => {
       showLobby('Ошибка подключения. Запущен ли сервер?');
     };
   }
 
+  // ——— Действия ———
   function createGame() {
-    lobbyError.textContent = '';
-    connect(() => {
-      send({ type: MESSAGE.CREATE });
-    });
+    el.lobbyError.textContent = '';
+    showGame();
+    connect(() => send({ type: MSG.CREATE }));
   }
 
   function joinGame(id) {
-    const rid = (id || inputRoomId.value || '').trim().toLowerCase();
-    if (!rid) {
-      lobbyError.textContent = 'Введите код комнаты';
+    const roomId = (id ?? el.inputRoomId.value ?? '').trim().toLowerCase();
+    if (!roomId) {
+      el.lobbyError.textContent = 'Введите код комнаты';
       return;
     }
-    lobbyError.textContent = '';
+    el.lobbyError.textContent = '';
+    showGame();
     connect(() => {
-      send({ type: MESSAGE.JOIN, roomId: rid });
-      setUrlRoom(rid);
+      send({ type: MSG.JOIN, roomId });
+      setUrlRoom(roomId);
     });
   }
 
   function leaveRoom() {
-    roomId = null;
-    myRole = null;
-    gameStarted = false;
-    board = Array(9).fill(null);
-    currentTurn = 'X';
-    winner = null;
-    if (socket) {
-      socket.close();
-      socket = null;
+    state.roomId = null;
+    state.myRole = null;
+    state.gameStarted = false;
+    state.board = Array(9).fill(null);
+    state.currentTurn = 'X';
+    state.winner = null;
+    if (state.socket) {
+      state.socket.close();
+      state.socket = null;
     }
-    shareBlock.classList.add('hidden');
+    el.shareBlock.classList.add('hidden');
     showLobby();
     history.replaceState({}, '', location.pathname);
   }
@@ -214,7 +236,7 @@
   function initFromUrl() {
     const room = getUrlRoom();
     if (room) {
-      roomId = room;
+      state.roomId = room;
       showGame();
       joinGame(room);
       return;
@@ -222,47 +244,36 @@
     showLobby();
   }
 
-  btnCreate.addEventListener('click', () => {
-    showGame();
-    createGame();
+  // ——— События ———
+  el.btnCreate.addEventListener('click', createGame);
+
+  el.btnJoin.addEventListener('click', () => joinGame());
+
+  el.inputRoomId.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') joinGame();
   });
 
-  btnJoin.addEventListener('click', () => {
-    showGame();
-    joinGame();
+  el.btnCopyLink.addEventListener('click', async () => {
+    el.shareUrl.select();
+    el.shareUrl.setSelectionRange(0, 99_999);
+    await copyToClipboard(el.shareUrl.value);
+    const prev = el.btnCopyLink.textContent;
+    el.btnCopyLink.textContent = 'Скопировано!';
+    setTimeout(() => { el.btnCopyLink.textContent = prev; }, 2000);
   });
 
-  inputRoomId.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') {
-      showGame();
-      joinGame();
-    }
-  });
-
-  btnCopyLink.addEventListener('click', () => {
-    shareUrl.select();
-    shareUrl.setSelectionRange(0, 99999);
-    navigator.clipboard.writeText(shareUrl.value).then(() => {
-      const t = btnCopyLink.textContent;
-      btnCopyLink.textContent = 'Скопировано!';
-      setTimeout(() => { btnCopyLink.textContent = t; }, 2000);
-    });
-  });
-
-  boardEl.addEventListener('click', (e) => {
+  el.board.addEventListener('click', (e) => {
     const cell = e.target.closest('.cell');
-    if (!cell || cell.disabled) return;
+    if (!cell?.dataset.index || cell.disabled) return;
     const index = parseInt(cell.dataset.index, 10);
-    if (isNaN(index) || board[index] !== null || !isMyTurn) return;
-    send({ type: MESSAGE.MOVE, roomId, cellIndex: index });
+    if (state.board[index] !== null || !state.isMyTurn) return;
+    send({ type: MSG.MOVE, roomId: state.roomId, cellIndex: index });
   });
 
-  btnRestart.addEventListener('click', () => {
-    send({ type: MESSAGE.RESTART, roomId });
-  });
+  el.btnRestart.addEventListener('click', () => send({ type: MSG.RESTART, roomId: state.roomId }));
+  el.btnLeave.addEventListener('click', leaveRoom);
 
-  btnLeave.addEventListener('click', leaveRoom);
-
+  // ——— Инициализация ———
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', initFromUrl);
   } else {
